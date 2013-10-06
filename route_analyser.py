@@ -39,8 +39,6 @@ def get_osm_data(relation_id):
 
 # returns true if the 2 branches are equivalent
 def equivalent(branch1, branch2):
-    if branch1 is None or branch2 is None:
-        return False
     if len(branch1) != len(branch2):
         return False
     for i in range(0, len(branch1)):
@@ -48,16 +46,30 @@ def equivalent(branch1, branch2):
             return False
     return True
 
+def same(b1, b2):
+    if len(b1) != len(b2):
+        return False
+    for idx, _ in enumerate(b1):
+        if b1[idx] != b2[idx]:
+            return False
+    return True
+
+# check if a branch is not already in the list
+def is_in(branches, elem):
+    for branch in branches:
+        if same(branch,elem):
+            return True
+    return False
+
 # clean the equivalent branches
 def clean_branches(branches):
-    ret_branches = copy.deepcopy(branches)
-    for branch in branches:
-        rev = list(branch).reverse()
-        for branch2 in branches:
-            if equivalent(rev, branch2):
-                ret_branches.remove(branch2)
-    return ret_branches
-
+    new_branches = []
+    for branche in branches:
+        rev = list(branche)
+        rev.reverse()
+        if not is_in(branches, rev):
+            new_branches.append(branche)
+    return new_branches
 
 
 if __name__ == '__main__':
@@ -76,11 +88,14 @@ if __name__ == '__main__':
                     json.dump(datas, outfile, indent=4)
         else:
             json.dump(datas, sys.stdout, indent=4)
+
     # Loads OSM data from a JSON file
     elif args.input:
         json_data = open(args.input).read()
         datas = json.loads(json_data)
-        datas['branches'] = clean_branches(datas['branches'])
+        # cleaning branches
+        cleaned_branches = clean_branches(datas['branches'])
+        datas['branches'] = cleaned_branches
         if args.output:
             with open(args.output, "w") as outfile:
                     json.dump(datas, outfile, indent=4)
