@@ -36,27 +36,10 @@ def get_osm_data(relation_id):
         branches.append(branche)
     return { 'colour': colour, 'branches': branches }
 
-# returns true if the 2 branches are equivalent
-def equivalent(branch1, branch2):
-    if len(branch1) != len(branch2):
-        return False
-    for i in range(0, len(branch1)):
-        if branch1[i] != branch2[i]:
-            return False
-    return True
-
-def same(b1, b2):
-    if len(b1) != len(b2):
-        return False
-    for idx, _ in enumerate(b1):
-        if b1[idx] != b2[idx]:
-            return False
-    return True
-
 # check if a branch is not already in the list
 def is_in(branches, elem):
     for branch in branches:
-        if same(branch,elem):
+        if branch == elem:
             return True
     return False
 
@@ -69,6 +52,80 @@ def clean_branches(branches):
         if not is_in(new_branches, rev):
             new_branches.append(branche)
     return new_branches
+
+
+# calculates the position of each stops on a 1D map
+def compute_positions(branches):
+    ret = []
+    # a dictionnary to keep in cache
+    # already visited nodes
+    seen = {}
+    ypos = 0
+    xpos = 0
+    for idx, branch in enumerate(branches):
+        print "Parsing branch #%d" % idx
+        # first branch, apply an arbitrary coordinate for each node
+        if seen == {}:
+            for stop in branch:
+                ancestors =  0 if idx == 0 else 1
+                nexts = 0 if idx == len(branch) - 1 else 1
+                seen[stop] = { 'x': xpos, 'y': ypos, 'ancestors': ancestors, 'nexts' : nexts }
+                xpos += 1
+        # else try to find a known node
+        else:
+            unkn_node = []
+            known_node = None
+            for idxstop, stop in enumerate(branch):
+                saved = seen.get(stop)
+                if saved is None:
+                    if known_node is None:
+                        print "Unknown node"
+                        unkn_node.append(stop)
+                    else:
+                        # empty the unkn_node list
+                        xpos = known_node['x'] - 1
+                        ypos = known_node['y'] if known_node['ancestors'] == 0 else known_node['y'] + 1
+                        while len(unkn_node) > 0:
+                            popped = unkn_node.pop()
+                            ancestors = 0 if len(unkn_node) == 0 else 1
+                            seen[popped] = { 'x': xpos, 'y': ypos, 'ancestors' : ancestors, 'nexts': 1 }
+                            xpos -= 1
+                        # then add the new unknown node
+                        xpos = known_node['x'] + 1
+                        ypos = known_node['y'] if known_node['nexts'] == 0 else known_node['y'] + 1
+                        nexts = 0 if idxstop == len(branch) - 1 else 1
+                        curr_node = { 'x': xpos, 'y': ypos, 'ancestors': 1, 'nexts': nexts }
+                        seen[stop] = curr_node
+                        known_node = curr_node
+                else:
+                    print "node found: %s" % saved
+                    known_node = saved
+                    xpos = saved['x'] - 1
+                    ypos = saved['y'] if saved['ancestors'] == 0 else saved['y'] + 1
+                    while len(unkn_node) > 0:
+                        popped = unkn_node.pop()
+                        ancestors = 0 if len(unkn_node) == 0 else 1
+                        seen[popped] = { 'x': xpos, 'y': ypos, 'ancestors': ancestors, 'nexts': 1 }
+                        xpos -= 1
+        print ""
+    print "Computing levels finished: %d stops successfully placed" % len(seen.keys())
+    return seen
+
+# normalizes the coordinates of each stops
+def normalize_coordinates(stops):
+    min_x = 0
+    min_y = 0
+    print "Normalizing levels ..."
+    for name,stop in stops.iteritems():
+        if min_x > stop['x']:
+            min_x = stop['x']
+        if min_y > stop['y']:
+            min_y = stop['y']
+    print "min_x: %d min_y: %d" % (min_x, min_y)
+    for name,stop in stops.iteritems():
+        stop['x'] -= min_x
+        stop['y'] -= min_y
+    return stops
 
 
 if __name__ == '__main__':
@@ -98,11 +155,15 @@ if __name__ == '__main__':
         datas = json.loads(json_data)
         # cleaning branches
         datas['branches'] = clean_branches(datas['branches'])
+        # computes position (coordinates for each stops)
+        stops = compute_positions(datas['branches'])
+        # normalizes positions (simple translation)
+        stops = normalize_coordinates(stops)
         if args.output:
             with open(args.output, "w") as outfile:
-                    json.dump(datas, outfile, indent=4)
+                    json.dump(stops, outfile, indent=4)
         else:
-            json.dump(datas, sys.stdout, indent=4)
+            json.dump(stops, sys.stdout, indent=4)
     else:
         parser.print_help()
 
