@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import sys
-import pprint
 import json
 import argparse
 import copy
@@ -67,12 +66,13 @@ def clean_branches(branches):
     for branche in branches:
         rev = list(branche)
         rev.reverse()
-        if not is_in(branches, rev):
+        if not is_in(new_branches, rev):
             new_branches.append(branche)
     return new_branches
 
 
 if __name__ == '__main__':
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--relation", help="fetches the data from the OSM API", type=int)
     parser.add_argument("--input", help="Loads the data from a file")
@@ -83,6 +83,9 @@ if __name__ == '__main__':
     if args.relation:
         relation_id = int(args.relation)
         datas = get_osm_data(relation_id)
+        # cleaning branches
+        #cleaned_branches = clean_branches(datas['branches'])
+        #datas['branches'] = cleaned_branches
         if args.output:
             with open(args.output, "w") as outfile:
                     json.dump(datas, outfile, indent=4)
@@ -94,8 +97,7 @@ if __name__ == '__main__':
         json_data = open(args.input).read()
         datas = json.loads(json_data)
         # cleaning branches
-        cleaned_branches = clean_branches(datas['branches'])
-        datas['branches'] = cleaned_branches
+        datas['branches'] = clean_branches(datas['branches'])
         if args.output:
             with open(args.output, "w") as outfile:
                     json.dump(datas, outfile, indent=4)
@@ -103,3 +105,4 @@ if __name__ == '__main__':
             json.dump(datas, sys.stdout, indent=4)
     else:
         parser.print_help()
+
