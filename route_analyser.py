@@ -20,21 +20,22 @@ def get_osm_data(relation_id):
     daughter_relations = [ member['ref'] for member in mother_relation['member']
                             if member['type'] == 'relation'
                             and member.get('ref', None) is not None ]
-
     branches = []
-
+    coords = {}
     # iterating on daughter relations
     for daughter in daughter_relations:
         current_daughter = OSM_API.RelationGet(daughter)
         branche = []
         for member in current_daughter['member']:
-            if member['role'] == 'stop':
-                current_stop = OSM_API.NodeGet(member['ref']) if member['type'] == 'node' else OSM_API.WayGet(member['ref'])
+            # The OSM wiki explicitly states that the stops must be nodes
+            if member['role'] == 'stop' and member['type'] == 'node':
+                current_stop = OSM_API.NodeGet(member['ref'])
                 name_stop = current_stop['tag'].get('name', None)
                 if name_stop is not None:
                     branche.append(name_stop)
+                    coords[name_stop] = {'lat': current_stop['lat'], 'lon': current_stop['lon'] }
         branches.append(branche)
-    return { 'colour': colour, 'branches': branches }
+    return { 'colour': colour, 'branches': branches, 'coords': coords }
 
 # check if a branch is not already in the list
 def is_in(branches, elem):
@@ -56,14 +57,10 @@ def clean_branches(branches):
 
 # calculates the position of each stops on a 1D map
 def compute_positions(branches):
-    ret = []
-    # a dictionnary to keep in cache
-    # already visited nodes
     seen = {}
     ypos = 0
     xpos = 0
     for idx, branch in enumerate(branches):
-        print "Parsing branch #%d" % idx
         # first branch, apply an arbitrary coordinate for each node
         if seen == {}:
             for stop in branch:
@@ -77,14 +74,20 @@ def compute_positions(branches):
             known_node = None
             for idxstop, stop in enumerate(branch):
                 saved = seen.get(stop)
+                # node not found
                 if saved is None:
+                    # no known node found yet, we can't
+                    # currently calculate its position
                     if known_node is None:
-                        print "Unknown node"
                         unkn_node.append(stop)
+                    # a known node has been found earlier
                     else:
                         # empty the unkn_node list
                         xpos = known_node['x'] - 1
                         ypos = known_node['y'] if known_node['ancestors'] == 0 else known_node['y'] + 1
+                        # increments the nexts of the known_node
+                        known_node['ancestors'] += 1
+                        nexts = 0 if idxstop == len(branch) - 1 else 1
                         while len(unkn_node) > 0:
                             popped = unkn_node.pop()
                             ancestors = 0 if len(unkn_node) == 0 else 1
@@ -93,35 +96,33 @@ def compute_positions(branches):
                         # then add the new unknown node
                         xpos = known_node['x'] + 1
                         ypos = known_node['y'] if known_node['nexts'] == 0 else known_node['y'] + 1
-                        nexts = 0 if idxstop == len(branch) - 1 else 1
                         curr_node = { 'x': xpos, 'y': ypos, 'ancestors': 1, 'nexts': nexts }
                         seen[stop] = curr_node
                         known_node = curr_node
+                # node already saved in cache
                 else:
-                    print "node found: %s" % saved
                     known_node = saved
                     xpos = saved['x'] - 1
-                    ypos = saved['y'] if saved['ancestors'] == 0 else saved['y'] + 1
+                    saved['nexts'] += 1
+                    ypos = saved['y'] if saved['nexts'] == 0 else saved['y'] + 1
+                    # then we need to increment the number of nexts for the
+                    # known node
                     while len(unkn_node) > 0:
                         popped = unkn_node.pop()
                         ancestors = 0 if len(unkn_node) == 0 else 1
                         seen[popped] = { 'x': xpos, 'y': ypos, 'ancestors': ancestors, 'nexts': 1 }
                         xpos -= 1
-        print ""
-    print "Computing levels finished: %d stops successfully placed" % len(seen.keys())
     return seen
 
 # normalizes the coordinates of each stops
 def normalize_coordinates(stops):
     min_x = 0
     min_y = 0
-    print "Normalizing levels ..."
     for name,stop in stops.iteritems():
         if min_x > stop['x']:
             min_x = stop['x']
         if min_y > stop['y']:
             min_y = stop['y']
-    print "min_x: %d min_y: %d" % (min_x, min_y)
     for name,stop in stops.iteritems():
         stop['x'] -= min_x
         stop['y'] -= min_y
@@ -129,7 +130,6 @@ def normalize_coordinates(stops):
 
 
 if __name__ == '__main__':
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--relation", help="fetches the data from the OSM API", type=int)
     parser.add_argument("--input", help="Loads the data from a file")
@@ -140,9 +140,6 @@ if __name__ == '__main__':
     if args.relation:
         relation_id = int(args.relation)
         datas = get_osm_data(relation_id)
-        # cleaning branches
-        #cleaned_branches = clean_branches(datas['branches'])
-        #datas['branches'] = cleaned_branches
         if args.output:
             with open(args.output, "w") as outfile:
                     json.dump(datas, outfile, indent=4)
@@ -153,17 +150,21 @@ if __name__ == '__main__':
     elif args.input:
         json_data = open(args.input).read()
         datas = json.loads(json_data)
+        print "%d stops geolocalized" % len(datas['coords'].keys())
         # cleaning branches
         datas['branches'] = clean_branches(datas['branches'])
         # computes position (coordinates for each stops)
         stops = compute_positions(datas['branches'])
         # normalizes positions (simple translation)
         stops = normalize_coordinates(stops)
+
         if args.output:
             with open(args.output, "w") as outfile:
                     json.dump(stops, outfile, indent=4)
         else:
             json.dump(stops, sys.stdout, indent=4)
+
+    # prints the help
     else:
         parser.print_help()
 
